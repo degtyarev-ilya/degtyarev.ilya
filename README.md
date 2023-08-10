@@ -137,7 +137,7 @@ https://metabase.sky.pro/question/77552<br>
 Выводы (итоги):<br>
 Итог №1: Готовая таблица с балансами всех студентов за год<br>
 <br>
-## Контактная информация:<br>
+## Контактная информация:
 Тел: + 79002515504<br>
 e-mail: degtyarev.ilya56@yandex.ru<br>
 Telegram: https://t.me/degilya<br>
