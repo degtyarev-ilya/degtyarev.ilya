@@ -1,0 +1,150 @@
+Шаг 1-9
+
+with first_payments as
+(
+select user_id, first_payment_date
+from (
+    select user_id
+    , date_trunc ('day', transaction_datetime) as first_payment_date
+    , row_number() over (partition by user_id order by transaction_datetime) as rang_payment
+    from skyeng_db.payments
+    where status_name = 'success'
+    order by user_id, transaction_datetime) first_pay
+where rang_payment = 1
+)
+, all_dates as
+(
+select distinct date_trunc ('day', class_start_datetime) as dt
+    from skyeng_db.classes
+where date_trunc ('year', class_start_datetime) = '01-01-2016'
+order by dt
+)
+, all_dates_by_user as
+(
+select fp.user_id, dt
+    from first_payments fp
+    right join all_dates ad
+    on first_payment_date <= dt 
+)
+, payments_by_dates as
+(
+select user_id, 
+date_trunc ('day', transaction_datetime) as payment_day,
+sum (classes) as transaction_balance_change
+    from skyeng_db.payments
+where status_name = 'success'
+group by user_id, payment_day
+order by user_id
+)
+, payments_by_dates_cumsum as 
+(
+select adbu.user_id, dt, transaction_balance_change,
+coalesce (sum (transaction_balance_change) over (partition by adbu.user_id order by dt), 0) as transaction_balance_change_cs
+    from payments_by_dates pdt
+    right join all_dates_by_user adbu
+    on pdt.user_id = adbu.user_id and pdt.payment_day = adbu.dt
+)
+, classes_by_dates as
+(
+select user_id,
+date_trunc ('day', class_start_datetime) as class_day,
+count (user_id) * (-1) as classes
+    from skyeng_db.classes
+where class_status in ('success', 'failed_by_student') and class_type <> 'trial'
+group by user_id, class_day
+)
+, classes_by_dates_dates_cumsum as
+(
+select adbu.user_id, dt, classes,
+coalesce (sum (classes) over (partition by adbu.user_id order by dt), 0) as classes_cs
+    from classes_by_dates cbd
+    right join all_dates_by_user adbu
+    on cbd.user_id = adbu.user_id and cbd.class_day = adbu.dt
+)
+select pbdc.user_id, pbdc.dt, transaction_balance_change, transaction_balance_change_cs, classes, classes_cs,
+classes_cs + transaction_balance_change_cs as balance
+    from payments_by_dates_cumsum pbdc
+    left join classes_by_dates_dates_cumsum cbdc
+    on pbdc.user_id = cbdc.user_id and pbdc.dt = cbdc.dt
+order by user_id, dt
+
+Шаг 10
+
+with first_payments as
+(
+select user_id, first_payment_date
+from (
+    select user_id
+    , date_trunc ('day', transaction_datetime) as first_payment_date
+    , row_number() over (partition by user_id order by transaction_datetime) as rang_payment
+    from skyeng_db.payments
+    where status_name = 'success'
+    order by user_id, transaction_datetime) first_pay
+where rang_payment = 1
+)
+, all_dates as
+(
+select distinct date_trunc ('day', class_start_datetime) as dt
+from skyeng_db.classes
+where date_trunc ('year', class_start_datetime) = '01-01-2016'
+order by dt
+)
+, all_dates_by_user as
+(select fp.user_id, dt
+from first_payments fp
+right join all_dates ad
+on first_payment_date <= dt 
+)
+, payments_by_dates as
+(
+select user_id, 
+date_trunc ('day', transaction_datetime) as payment_day,
+sum (classes) as transaction_balance_change
+from skyeng_db.payments
+where status_name = 'success'
+group by user_id, payment_day
+order by user_id
+)
+, payments_by_dates_cumsum as 
+(
+select adbu.user_id, dt, transaction_balance_change,
+coalesce (sum (transaction_balance_change) over (partition by adbu.user_id order by dt), 0) as transaction_balance_change_cs
+from payments_by_dates pdt
+right join all_dates_by_user adbu
+on pdt.user_id = adbu.user_id and pdt.payment_day = adbu.dt
+)
+, classes_by_dates as
+(
+select user_id,
+date_trunc ('day', class_start_datetime) as class_day,
+count (user_id) * (-1) as classes
+from skyeng_db.classes
+where class_status in ('success', 'failed_by_student') and class_type <> 'trial'
+group by user_id, class_day
+)
+, classes_by_dates_dates_cumsum as
+(
+select adbu.user_id, dt, classes,
+coalesce (sum (classes) over (partition by adbu.user_id order by dt), 0) as classes_cs
+from classes_by_dates cbd
+right join all_dates_by_user adbu
+on cbd.user_id = adbu.user_id and cbd.class_day = adbu.dt
+)
+, balance as 
+(
+select pbdc.user_id, pbdc.dt, transaction_balance_change, transaction_balance_change_cs, classes, classes_cs,
+classes_cs + transaction_balance_change_cs as balance
+from payments_by_dates_cumsum pbdc
+left join classes_by_dates_dates_cumsum cbdc
+on pbdc.user_id = cbdc.user_id and pbdc.dt = cbdc.dt
+order by user_id, dt
+)
+select dt, 
+sum (transaction_balance_change) as "Сумма купленных занятий", 
+sum (transaction_balance_change_cs) as "Кумулятивная сумма купленных занятий",
+sum (classes) as "Сумма прошедших занятий", 
+sum (classes_cs) as "Кумулятивная сумма прошедших занятий",
+sum (balance) as "Сумма оставшихся занятий"
+    from balance
+group by dt
+order by dt
